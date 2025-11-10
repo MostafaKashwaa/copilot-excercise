@@ -23,11 +23,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
-        // Build participants HTML (bulleted list or a "no participants" message)
+        // Build participants HTML (list with a remove button for each participant, or a "no participants" message)
         const participantsHtml =
           Array.isArray(details.participants) && details.participants.length
             ? `<div class="participants"><strong>Participants</strong><ul>${details.participants
-                .map((p) => `<li class="participant-item">${p}</li>`)
+                .map(
+                  (p) =>
+                    `<li class="participant-item"><span class="participant-name">${p}</span><button class="remove-participant" data-activity="${name}" data-participant="${p}" aria-label="Remove ${p}">🗑️</button></li>`
+                )
                 .join("")}</ul></div>`
             : `<div class="participants"><strong>Participants</strong><p class="no-participants">No participants yet</p></div>`;
 
@@ -71,9 +74,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
 
       if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
-        signupForm.reset();
+  messageDiv.textContent = result.message;
+  messageDiv.className = "success";
+  signupForm.reset();
+  // Refresh activities to show the new participant
+  await fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
@@ -90,6 +95,51 @@ document.addEventListener("DOMContentLoaded", () => {
       messageDiv.className = "error";
       messageDiv.classList.remove("hidden");
       console.error("Error signing up:", error);
+    }
+  });
+
+  // Delegated click handler for removing/unregistering a participant
+  // Assumption: the server exposes a DELETE endpoint at
+  //   /activities/:activity/signup?email=:email
+  // which unregisters the participant. On success we refresh activities.
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".remove-participant");
+    if (!btn) return;
+
+    const activity = btn.dataset.activity;
+    const participant = btn.dataset.participant;
+
+    if (!activity || !participant) return;
+
+    // Simple optimistic UI: disable button while request runs
+    btn.disabled = true;
+
+    try {
+      const url = `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(participant)}`;
+      const resp = await fetch(url, { method: "DELETE" });
+      const body = await resp.json().catch(() => ({}));
+
+      if (resp.ok) {
+        // Refresh activities to show updated participant lists
+        await fetchActivities();
+
+        // Show success message briefly
+        messageDiv.textContent = body.message || `${participant} removed from ${activity}`;
+        messageDiv.className = "message success";
+        messageDiv.classList.remove("hidden");
+        setTimeout(() => messageDiv.classList.add("hidden"), 4000);
+      } else {
+        messageDiv.textContent = body.detail || body.message || "Failed to remove participant";
+        messageDiv.className = "message error";
+        messageDiv.classList.remove("hidden");
+      }
+    } catch (err) {
+      console.error("Error removing participant:", err);
+      messageDiv.textContent = "Network error while removing participant";
+      messageDiv.className = "message error";
+      messageDiv.classList.remove("hidden");
+    } finally {
+      btn.disabled = false;
     }
   });
 
